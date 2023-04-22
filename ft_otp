@@ -1,0 +1,80 @@
+#!/Users/joslopez/goinfre/miniconda3/envs/42AI-joslopez/bin/python3
+import argparse
+import hashlib
+import base64
+import os
+import sys
+import time
+import hmac
+import pyotp
+import re
+
+def encrypt_key(key_file):
+    key = open(key_file, 'r').read()
+    salt = os.urandom(16)
+    key_bytes = key.encode('utf-8')
+    key_hash = hashlib.sha256(salt + key_bytes).digest()
+    return base64.b64encode(salt + key_hash).decode('utf-8')
+
+def generate_password(master_key):
+    current_time = int(time.time())
+    time_window = 30
+    time_steps = current_time // time_window
+    counter_bytes = time_steps.to_bytes(8, byteorder='big')
+    master_key_bytes = master_key.encode()
+    print("Clave pyotp:", pyotp.TOTP(base64.b32encode(master_key.encode())).now())
+    hmac_digest = hmac.new(master_key_bytes, counter_bytes, hashlib.sha1).digest()
+    offset = hmac_digest[-1] & 0x0F
+    otp_bytes = hmac_digest[offset:offset+4]
+    otp_int = int.from_bytes(otp_bytes, byteorder='big') & 0x7FFFFFFF
+    otp = str(otp_int % 1000000).zfill(6)
+    return otp
+
+def save_key_to_file(key, file_path):
+    try:
+        with open(file_path, 'w') as file:
+            file.write(key)
+        print(f'Key was successfully saved in {file_path}.')
+    except Exception as e:
+        print(f'Error saving key to file: {e}')
+        sys.exit(1)
+
+def load_key_from_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            key = file.read()
+            return key.strip()
+    except FileNotFoundError:
+        print(f'Error: Key file {file_path} not found.')
+        sys.exit(1)
+    except Exception as e:
+        print(f'Error loading key from file: {e}')
+        sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(description='ft_otp - One-Time Password Generator')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('-g', metavar='KEY_FILE', help='Generate and save encrypted key to file')
+    group.add_argument('-k', metavar='KEY_FILE', help='Generate a new temporary password')
+    args = parser.parse_args()
+
+    if args.g:
+        # Generate and save encrypted key to file
+        key_file = args.g
+        with open(key_file) as f:
+            tmp = f.read()
+        if len(tmp) < 64 or not re.match("^[0-9a-fA-F]+$", tmp):
+            print("./ft_otp: error: key must be 64 hexadecimal characters.")
+        else:
+            key = encrypt_key(args.g)
+            save_key_to_file(key, 'ft_otp.key')
+
+    elif args.k:
+        # Generate a new temporary password
+        key_file = args.k
+        encrypted_key = load_key_from_file(key_file)
+        password = generate_password(encrypted_key)
+        print(password)
+
+if __name__ == '__main__':
+    main()
